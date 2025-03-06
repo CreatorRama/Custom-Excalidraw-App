@@ -1,7 +1,7 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { Stage, Layer, Rect, Circle, Line, RegularPolygon, Image as KonvaImage, Transformer } from "react-konva";
 import CustomButton from "./CustomButton";
-
+import ImageCropper from "./image-cropper";
 const KonvaApp = () => {
   const [shapes, setShapes] = useState([]);
   const [tool, setTool] = useState("rectangle");
@@ -60,6 +60,101 @@ const KonvaApp = () => {
       setStageHeight(newHeight);
     }
   };
+
+   // New state for crop modal
+   const [showCropModal, setShowCropModal] = useState(false);
+   const [cropImageData, setCropImageData] = useState(null);
+   const [cropImageIndex, setCropImageIndex] = useState(null);
+ 
+   // Refs
+ 
+   // Function to open crop modal with selected image
+   const openCropModal = (imageIndex) => {
+     const selectedImage = shapes[imageIndex];
+     if (selectedImage && selectedImage.type === "image") {
+       // Create a data URL from the image
+       const img = selectedImage.image;
+       
+       // Create a canvas to get the image data
+       const canvas = document.createElement('canvas');
+       canvas.width = img.width;
+       canvas.height = img.height;
+       const ctx = canvas.getContext('2d');
+       ctx.drawImage(img, 0, 0);
+       
+       // Get data URL and pass to crop modal
+       const dataURL = canvas.toDataURL();
+       
+       setCropImageData(dataURL);
+       setCropImageIndex(imageIndex);
+       setShowCropModal(true);
+     }
+   };
+ 
+   // Function to handle the cropped image from ImageCropper
+   const handleCroppedImage = (croppedImageUrl) => {
+     if (!croppedImageUrl || cropImageIndex === null) {
+       setShowCropModal(false);
+       return;
+     }
+ 
+     // Load the cropped image
+     const img = new Image();
+     img.onload = () => {
+       // Create a new shape with the cropped image
+       const updatedShapes = [...shapes];
+       const selectedShape = updatedShapes[cropImageIndex];
+       
+       // Update the existing image with the cropped version
+       updatedShapes[cropImageIndex] = {
+         ...selectedShape,
+         image: img,
+         originalWidth: img.width,
+         originalHeight: img.height,
+         // Reset transformations if needed
+         scaleX: 1,
+         scaleY: 1,
+         rotation: 0
+       };
+       
+       // Add to history
+       const newHistory = history.slice(0, historyStep + 1);
+       newHistory.push(updatedShapes);
+       
+       // Update state
+       setShapes(updatedShapes);
+       setHistory(newHistory);
+       setHistoryStep(newHistory.length - 1);
+       setShowCropModal(false);
+     };
+     
+     img.src = croppedImageUrl;
+   };
+ 
+   // Function to cancel cropping
+   const handleCancelCrop = () => {
+     setShowCropModal(false);
+     setCropImageData(null);
+     setCropImageIndex(null);
+   };
+ 
+   // Modify your existing handleImageSelect to integrate with new crop functionality
+   const handleImageSelect = (index) => {
+     if (tool === "move") {
+       // Select the image for moving/transforming
+       handleShapeSelect(index);
+     } else if (tool === "cropImage") {
+       // Open the crop modal with the selected image
+       openCropModal(index);
+     }
+   };
+ 
+   // Add this to replace your current crop related functions
+   const startCropping = () => {
+     if (selectedShapeIndex !== null && shapes[selectedShapeIndex].type === "image") {
+       openCropModal(selectedShapeIndex);
+     }
+   };
 
   useEffect(() => {
     checkSize();
@@ -156,19 +251,7 @@ const KonvaApp = () => {
     }
   };
 
-  const handleImageSelect = (index) => {
-    if (tool === "move" || tool === "cropImage") {
-      setSelectedShapeIndex(index);
-
-      if (transformerRef.current) {
-        const selectedNode = layerRef.current.findOne(`#shape-${index}`);
-        if (selectedNode) {
-          transformerRef.current.nodes([selectedNode]);
-          transformerRef.current.getLayer().batchDraw();
-        }
-      }
-    }
-  };
+ 
 
   const handleTransformEnd = (e) => {
     if (selectedShapeIndex === null) return;
@@ -198,21 +281,6 @@ const KonvaApp = () => {
 
     // Add to history after transform
     addToHistory([...shapes]);
-  };
-
-  const startCropping = () => {
-    if (selectedShapeIndex === null) return;
-
-    const shape = shapes[selectedShapeIndex];
-    if (shape.type !== "image") return;
-
-    setIsCropping(true);
-    setCropRectVisible(false);
-    // Disable transformer during cropping
-    if (transformerRef.current) {
-      transformerRef.current.nodes([]);
-      transformerRef.current.getLayer().batchDraw();
-    }
   };
 
   const finishCropping = () => {
@@ -314,14 +382,6 @@ const KonvaApp = () => {
   };
 
   const handleMouseDown = (e) => {
-    // Handle cropping if in crop mode
-    if (isCropping && selectedShapeIndex !== null) {
-      const { x, y } = e.target.getStage().getPointerPosition();
-      setCropStartPoint({ x, y });
-      setCropEndPoint({ x, y });
-      setCropRectVisible(true);
-      return;
-    }
 
     if (tool === "move") return;
 
@@ -761,6 +821,10 @@ const KonvaApp = () => {
     }
   };
 
+  const handleMoveClick = useCallback(() => {
+    setTool("move");
+  }, []);
+
   // Reset image rotation and scaling
   const handleResetImageTransform = () => {
     if (selectedShapeIndex !== null) {
@@ -833,6 +897,9 @@ const KonvaApp = () => {
       }
     }
   }, [selectedShapeIndex]);
+
+  const isActive = useMemo(() => tool === "move", [tool]);
+const buttonClassName = useMemo(() => "m-1 text-sm md:text-base", []);
 
   // Add keyboard shortcuts for undo/redo and delete
   useEffect(() => {
@@ -988,9 +1055,9 @@ const KonvaApp = () => {
               Eraser
             </CustomButton>
             <CustomButton
-              onClick={() => { setTool("move"); }}
-              active={tool === "move"}
-              className="m-1 text-sm md:text-base"
+              onClick={handleMoveClick}
+              active={isActive}
+              className={buttonClassName}
             >
               Move/Select
             </CustomButton>
@@ -1403,6 +1470,31 @@ const KonvaApp = () => {
           <p>Selected shape: {shapes[selectedShapeIndex].type} (Index: {selectedShapeIndex})</p>
         )}
       </div>
+      {showCropModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-4 max-w-6xl max-h-screen overflow-auto">
+            <h2 className="text-xl font-bold mb-4">Crop Image</h2>
+            
+            {cropImageData && (
+              <ImageCropper 
+                initialImage={cropImageData} 
+                onCrop={handleCroppedImage}
+                onCancel={handleCancelCrop}
+              />
+            )}
+            
+            <div className="mt-4 flex justify-end">
+              <button 
+                onClick={handleCancelCrop}
+                className="bg-gray-300 text-gray-800 px-4 py-2 rounded mr-2 hover:bg-gray-400"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

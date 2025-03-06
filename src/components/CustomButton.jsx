@@ -1,6 +1,7 @@
 import React from 'react';
 
 const CustomButton = ({ children, onClick, className = '', ...props }) => {
+  // console.log(props);
   return (
     <button
       type="button"
@@ -13,4 +14,4 @@ const CustomButton = ({ children, onClick, className = '', ...props }) => {
   );
 };
 
-export default CustomButton;
+export default React.memo(CustomButton);
